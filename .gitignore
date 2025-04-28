@@ -1,0 +1,6 @@
+*.mp3
+*.exe
+*.7z
+dist/
+ffmpeg/
+.venv/
