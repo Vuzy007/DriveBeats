@@ -1,137 +1,252 @@
+import customtkinter as ctk
+from tkinter import Menu, filedialog
+import subprocess
 import os
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
-from download import DownloadManager
-from utils import normalize_filename, ensure_ffmpeg_installed
 
-import yt_dlp
-import threading
+ctk.set_appearance_mode("Dark")
+ctk.set_default_color_theme("blue")
+
+
+class TrackItem(ctk.CTkFrame):
+    currently_playing = None  # глобальная ссылка на активный трек
+    selected_items = set()
+
+    def __init__(self, master, title, stream_url=None):
+        super().__init__(master)
+        self.title = title
+        self.stream_url = stream_url
+        self.configure(height=40)
+
+        self.hovered = False
+        self.fade_job = None
+        self.selected = False
+        self.ffplay_process = None
+
+        self.label = ctk.CTkLabel(self, text=title, anchor="w")
+        self.label.pack(side="left", fill="both", expand=True, padx=5)
+
+        self.button_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.listen_button = ctk.CTkButton(self.button_frame, text="Слушать", width=60, height=28, command=self.listen_track)
+        self.stop_button = ctk.CTkButton(self.button_frame, text="Стоп", width=60, height=28, command=self.stop_track)
+        self.delete_button = ctk.CTkButton(self.button_frame, text="Удалить", width=60, height=28, command=self.delete_track)
+
+        self.listen_button.pack(side="left", padx=2)
+        self.stop_button.pack(side="left", padx=2)
+        self.delete_button.pack(side="left", padx=2)
+
+        self.bind_events()
+
+    def bind_events(self):
+        self.bind("<Enter>", self.on_hover, add="+")
+        self.bind("<Leave>", self.on_leave, add="+")
+        self.label.bind("<Enter>", self.on_hover, add="+")
+        self.label.bind("<Leave>", self.on_leave, add="+")
+        self.button_frame.bind("<Enter>", self.on_hover, add="+")
+        self.button_frame.bind("<Leave>", self.on_leave, add="+")
+        self.label.bind("<Button-1>", self.toggle_selection, add="+")
+
+    def toggle_selection(self, event):
+        modifiers = event.state
+        ctrl = modifiers & 0x0004
+
+        if ctrl:
+            self.selected = not self.selected
+        else:
+            for widget in self.master.winfo_children():
+                if isinstance(widget, TrackItem):
+                    widget.selected = False
+                    widget.configure(fg_color="transparent")
+            self.selected = True
+
+        self.update_selection_style()
+
+    def update_selection_style(self):
+        if self.selected:
+            self.configure(fg_color="#333955")
+        else:
+            self.configure(fg_color="transparent")
+
+    def on_hover(self, event=None):
+        if self.fade_job:
+            self.after_cancel(self.fade_job)
+        self.hovered = True
+        self.button_frame.pack(side="right", padx=5)
+
+    def on_leave(self, event=None):
+        if self.fade_job:
+            self.after_cancel(self.fade_job)
+        if self.hovered:
+            self.fade_job = self.after(1000, self.fade_out_buttons)
+
+    def fade_out_buttons(self):
+        if not self.hovered:
+            self.button_frame.pack_forget()
+
+    def listen_track(self):
+        if not self.stream_url:
+            return
+
+        # Остановить воспроизведение предыдущего трека, если был
+        if TrackItem.currently_playing and TrackItem.currently_playing is not self:
+            TrackItem.currently_playing.stop_track()
+
+        if self.ffplay_process and self.ffplay_process.poll() is None:
+            self.ffplay_process.terminate()
+
+        try:
+            ffplay_path = os.path.abspath("ffmpeg/bin/ffplay.exe")
+            self.ffplay_process = subprocess.Popen([
+                ffplay_path, "-nodisp", "-autoexit", self.stream_url
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            TrackItem.currently_playing = self
+            print(f"▶ Воспроизведение: {self.title}")
+        except FileNotFoundError:
+            print("❌ ffplay не найден. Убедитесь, что путь указан верно.")
+        except FileNotFoundError:
+            print("❌ ffplay не найден. Убедитесь, что путь указан верно.")
+
+    def stop_track(self):
+        if self.ffplay_process and self.ffplay_process.poll() is None:
+            self.ffplay_process.terminate()
+            print(f"■ Остановлено: {self.title}")
+        if TrackItem.currently_playing is self:
+            TrackItem.currently_playing = None
+
+    def delete_track(self):
+        self.stop_track()
+        print(f"✖ Удалить: {self.title}")
+        self.destroy()
+
+
+
 
 class MusicLoaderApp:
-    def __init__(self, root):
+    def __init__(self, root, search_tracks, get_stream_url):
         self.root = root
+        self.search_tracks = search_tracks
+        self.get_stream_url = get_stream_url
         self.root.title("Pankov.it Mp3 Loader for off-line music")
-        self.ffmpeg_path = ensure_ffmpeg_installed()
+        self.root.geometry("1100x700")
 
-        self.query_var = tk.StringVar()
-        self.num_results_var = tk.IntVar(value=10)
+        self.save_path = ctk.StringVar(value="D:/Music")
 
-        self.search_results = []
-        self.queue_items = {}
+        self.create_menu()
+        self.build_layout()
 
-        self.setup_gui()
+    def create_menu(self):
+        menubar = Menu(self.root)
 
-        self.download_manager = DownloadManager(self.queue_tree, self.ffmpeg_path)
+        file_menu = Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Выход", command=self.root.quit)
+        menubar.add_cascade(label="Файл", menu=file_menu)
 
-        # Привязка команд к кнопкам после создания download_manager
-        self.pause_button.config(command=self.download_manager.pause_downloads)
-        self.resume_button.config(command=self.download_manager.resume_downloads)
+        settings_menu = Menu(menubar, tearoff=0)
+        settings_menu.add_command(label="Настройки")
+        menubar.add_cascade(label="Настройки", menu=settings_menu)
 
-    def setup_gui(self):
-        main_frame = tk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        help_menu = Menu(menubar, tearoff=0)
+        help_menu.add_command(label="О программе")
+        menubar.add_cascade(label="О программе", menu=help_menu)
 
-        top_frame = tk.Frame(main_frame)
-        top_frame.pack(fill=tk.BOTH, expand=True)
+        self.root.config(menu=menubar)
 
-        # Результаты поиска
-        search_frame = tk.Frame(top_frame)
-        search_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    def build_layout(self):
+        main_frame = ctk.CTkFrame(self.root)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        tk.Label(search_frame, text="Результаты поиска:").pack()
-        self.search_tree = ttk.Treeview(search_frame, columns=("title",), show="headings")
-        self.search_tree.heading("title", text="Название трека")
-        self.search_tree.pack(fill=tk.BOTH, expand=True)
+        top_panel = ctk.CTkFrame(main_frame)
+        top_panel.pack(fill="x")
 
-        # Очередь загрузки
-        queue_frame = tk.Frame(top_frame)
-        queue_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.query_entry = ctk.CTkEntry(top_panel, placeholder_text="Введите запрос", width=300)
+        self.query_entry.pack(side="left", padx=(0, 10))
+        self.query_entry.bind("<Return>", lambda event: self.perform_search())
 
-        tk.Label(queue_frame, text="Очередь загрузки:").pack()
-        self.queue_tree = ttk.Treeview(queue_frame, columns=("title", "status", "progress"), show="headings")
-        self.queue_tree.heading("title", text="Название трека")
-        self.queue_tree.heading("status", text="Статус")
-        self.queue_tree.heading("progress", text="Прогресс")
-        self.queue_tree.pack(fill=tk.BOTH, expand=True)
+        ctk.CTkButton(top_panel, text="Найти", command=self.perform_search).pack(side="left", padx=5)
 
-        # Управление
-        bottom_frame = tk.Frame(main_frame)
-        bottom_frame.pack(fill=tk.X)
+        path_panel = ctk.CTkFrame(main_frame)
+        path_panel.pack(fill="x", pady=5)
 
-        tk.Entry(bottom_frame, textvariable=self.query_var, width=30).pack(side=tk.LEFT, padx=5)
-        tk.Entry(bottom_frame, textvariable=self.num_results_var, width=5).pack(side=tk.LEFT)
-        tk.Button(bottom_frame, text="Найти", command=self.search_tracks).pack(side=tk.LEFT, padx=5)
-        tk.Button(bottom_frame, text="Добавить в очередь", command=self.add_to_queue).pack(side=tk.LEFT, padx=5)
-        tk.Button(bottom_frame, text="Прослушать", command=self.preview_track).pack(side=tk.LEFT, padx=5)
+        self.path_entry = ctk.CTkEntry(path_panel, textvariable=self.save_path, width=600)
+        self.path_entry.pack(side="left", padx=(0, 5))
+        ctk.CTkButton(path_panel, text="Обзор", command=self.browse_directory).pack(side="left")
 
-        self.pause_button = tk.Button(bottom_frame, text="Пауза")
-        self.pause_button.pack(side=tk.LEFT, padx=5)
+        middle_frame = ctk.CTkFrame(main_frame)
+        middle_frame.pack(fill="both", expand=True, pady=10)
 
-        self.resume_button = tk.Button(bottom_frame, text="Возобновить")
-        self.resume_button.pack(side=tk.LEFT, padx=5)
+        left_frame = ctk.CTkFrame(middle_frame)
+        left_frame.pack(side="left", fill="both", expand=True)
+        ctk.CTkLabel(left_frame, text="Результаты поиска:").pack(anchor="w")
 
-        self.status_label = tk.Label(main_frame, text="Готов к работе...")
+        self.search_container = ctk.CTkScrollableFrame(left_frame)
+        self.search_container.pack(fill="both", expand=True, padx=5)
+
+        center_controls = ctk.CTkFrame(middle_frame, width=80)
+        center_controls.pack(side="left", fill="y")
+        center_controls.pack_propagate(False)
+
+        ctk.CTkLabel(center_controls, text="").pack(expand=True)
+        ctk.CTkButton(center_controls, text=">", command=self.add_selected).pack(pady=5)
+        ctk.CTkButton(center_controls, text=">>", command=self.add_all).pack(pady=5)
+        ctk.CTkLabel(center_controls, text="").pack(expand=True)
+
+        right_frame = ctk.CTkFrame(middle_frame)
+        right_frame.pack(side="left", fill="both", expand=True)
+
+        queue_control = ctk.CTkFrame(right_frame)
+        queue_control.pack(fill="x", padx=5, pady=15)
+        self.pause_resume_btn = ctk.CTkButton(queue_control, text="Пауза/Старт")
+        self.pause_resume_btn.pack(side="left", padx=2)
+        ctk.CTkButton(queue_control, text="Стоп").pack(side="left", padx=2)
+        ctk.CTkOptionMenu(queue_control, values=["1 поток", "2 потока", "4 потока"]).pack(side="left", padx=2)
+        ctk.CTkButton(queue_control, text="Очистить").pack(side="left", padx=2)
+
+        ctk.CTkLabel(right_frame, text="Очередь загрузки:").pack(anchor="w")
+        self.queue_container = ctk.CTkScrollableFrame(right_frame)
+        self.queue_container.pack(fill="both", expand=True, padx=5)
+
+        self.status_label = ctk.CTkLabel(main_frame, text="")
         self.status_label.pack(pady=5)
 
-    def search_tracks(self):
-        query = self.query_var.get()
-        num_results = self.num_results_var.get()
-        if not query:
-            messagebox.showerror("Ошибка поиска", "Введите текст запроса.")
+    def browse_directory(self):
+        path = filedialog.askdirectory()
+        if path:
+            self.save_path.set(path)
+
+    def perform_search(self):
+        query = self.query_entry.get()
+        print(f"Поиск по SoundCloud: {query}")
+        for widget in self.search_container.winfo_children():
+            widget.destroy()
+
+        results = self.search_tracks(query)
+        if not results:
+            item = TrackItem(self.search_container, "Нет результатов")
+            item.pack(fill="x", pady=2, padx=5)
             return
 
-        self.status_label.config(text="Идёт поиск треков...")
-        self.search_tree.delete(*self.search_tree.get_children())
-        self.search_results.clear()
+        for track in results:
+            user = track.get("user", {}).get("username", "?")
+            title = track.get("title", "Без названия")
+            full_title = f"{user} — {title}"
 
-        threading.Thread(target=self._search_thread, args=(query, num_results), daemon=True).start()
+            # получаем стрим URL
+            stream_url = None
+            for transcoding in track.get("media", {}).get("transcodings", []):
+                if "progressive" in transcoding.get("format", {}).get("protocol", ""):
+                    stream_url = self.get_stream_url(transcoding.get("url"))
+                    break
 
-    def _search_thread(self, query, num_results):
-        opts = {
-            'quiet': True,
-            'skip_download': True,
-            'extract_flat': True,
-            'forcejson': True,
-            'default_search': 'ytsearch',
-        }
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                result = ydl.extract_info(f"ytsearch{num_results}:{query}", download=False)
-                entries = result.get('entries', [])
-                for entry in entries:
-                    title = entry.get('title')
-                    url = entry.get('url')
-                    if title and url:
-                        self.search_results.append({'title': title, 'url': url})
-                        self.search_tree.insert("", tk.END, values=(title,))
+            item = TrackItem(self.search_container, full_title, stream_url=stream_url)
+            item.pack(fill="x", pady=2, padx=5)
 
-        except Exception as e:
-            messagebox.showerror("Ошибка поиска", str(e))
+    def add_selected(self):
+        print("Добавить выделенный трек")
 
-        self.status_label.config(text="Готово.")
-
-    def add_to_queue(self):
-        selected = self.search_tree.selection()
-        for item in selected:
-            idx = self.search_tree.index(item)
-            track = self.search_results[idx]
-            if track['url'] not in self.queue_items:
-                queue_id = self.queue_tree.insert("", tk.END, values=(track['title'], "Ожидание", "0%"))
-                self.queue_items[track['url']] = queue_id
-                self.download_manager.add_to_queue(track['title'], track['url'], queue_id)
-
-    def preview_track(self):
-        selected = self.search_tree.selection()
-        if not selected:
-            messagebox.showinfo("Прослушивание", "Выберите трек для предпрослушивания.")
-            return
-
-        idx = self.search_tree.index(selected[0])
-        track = self.search_results[idx]
-        self.download_manager.preview_track(track['url'])
+    def add_all(self):
+        print("Добавить все треки")
 
 
 if __name__ == "__main__":
-    root = tk.Tk()
+    root = ctk.CTk()
     app = MusicLoaderApp(root)
     root.mainloop()
