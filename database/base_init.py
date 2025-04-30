@@ -21,20 +21,24 @@ def initialize_database():
 
     # Создание таблиц
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS downloaded_tracks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        track_title TEXT NOT NULL,
-        artist TEXT,
-        album TEXT,
-        genre TEXT,
-        release_year INTEGER,
-        download_date TEXT NOT NULL,
-        license_type TEXT,
-        file_path TEXT NOT NULL,
-        duration INTEGER,
-        source TEXT
-    )
-    ''')
+                   CREATE TABLE IF NOT EXISTS downloaded_tracks (
+                                                                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                                                    track_title TEXT NOT NULL,
+                                                                    artist TEXT,
+                                                                    album TEXT,
+                                                                    genre TEXT,
+                                                                    release_year INTEGER,
+                                                                    download_date TEXT NOT NULL,
+                                                                    license_type TEXT,
+                                                                    file_path TEXT NOT NULL,
+                                                                    duration INTEGER,
+                                                                    source TEXT,
+                                                                    url TEXT,
+                                                                    download_url,
+                                                                    track_id,
+                                                                    status TEXT NOT NULL DEFAULT 'pending'
+                   )
+                   ''')
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS users (
