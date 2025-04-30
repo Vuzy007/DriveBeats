@@ -1,6 +1,7 @@
 import os
 import requests
 import sqlite3
+import time
 
 
 class TrackDownloader:
@@ -39,13 +40,20 @@ class TrackDownloader:
         """
         while True:
             conn = self.db_manager.get_new_connection()
-            conn.row_factory = sqlite3.Row  # Позволяет обращаться к колонкам по имени
             cursor = conn.cursor()
 
             # Получаем список полей таблицы для проверки структуры
             cursor.execute("PRAGMA table_info(downloaded_tracks)")
             columns = cursor.fetchall()
-            column_names = [column[1] for column in columns]
+
+            # Проверяем, установлен ли row_factory
+            has_row_factory = hasattr(conn, 'row_factory') and conn.row_factory == sqlite3.Row
+
+            # Если row_factory не установлен, получаем имена колонок вручную
+            if has_row_factory:
+                column_names = [column[1] for column in columns]
+            else:
+                column_names = [column[1] for column in columns]
 
             # Определяем, какое имя колонки используется для URL
             url_column = "url" if "url" in column_names else "download_url"
@@ -56,13 +64,27 @@ class TrackDownloader:
 
             if not pending_tracks:
                 print("Очередь пуста. Ждём новых треков...")
-                break
+                time.sleep(5)  # Пауза перед повторной проверкой
+                continue  # Продолжаем цикл вместо выхода
 
             for track in pending_tracks:
-                track_id = track["id"]
-                title = track["track_title"]
-                artist = track["artist"] or "Unknown Artist"
-                url = track[url_column]
+                # Получаем данные либо по индексу, либо по имени колонки
+                if has_row_factory:
+                    track_id = track["id"]
+                    title = track["track_title"]
+                    artist = track["artist"] or "Unknown Artist"
+                    url = track[url_column]
+                else:
+                    # Получаем индексы колонок
+                    id_index = column_names.index("id")
+                    title_index = column_names.index("track_title")
+                    artist_index = column_names.index("artist")
+                    url_index = column_names.index(url_column)
+
+                    track_id = track[id_index]
+                    title = track[title_index]
+                    artist = track[artist_index] or "Unknown Artist"
+                    url = track[url_index]
 
                 print(f"Начинаем скачивание: {title}")
 
@@ -74,3 +96,4 @@ class TrackDownloader:
                 self.download_track(track_id, title, artist, url)
 
             conn.close()  # Закрываем соединение после обработки
+            time.sleep(2)  # Небольшая пауза между циклами обработки

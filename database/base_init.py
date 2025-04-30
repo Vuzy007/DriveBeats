@@ -36,6 +36,7 @@ def initialize_database():
                                                                     url TEXT,
                                                                     download_url,
                                                                     track_id,
+                                                                    error_message TEXT,
                                                                     status TEXT NOT NULL DEFAULT 'pending'
                    )
                    ''')

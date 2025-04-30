@@ -17,7 +17,7 @@ class DatabaseManager:
         """
         Обновить статус трека и путь к файлу (если скачивается).
         """
-        query = "UPDATE downloaded_tracks SET status = ?, filepath = ? WHERE id = ?"
+        query = "UPDATE downloaded_tracks SET status = ?, file_path = ? WHERE id = ?"
         self.connection.execute(query, (status, filepath, track_id))
         self.connection.commit()
         print(f"Обновлён статус трека ID {track_id}: {status}")
@@ -26,8 +26,8 @@ class DatabaseManager:
         """
         Устанавливает статус ошибки для трека.
         """
-        query = "UPDATE downloaded_tracks SET status = 'error', filepath = ? WHERE id = ?"
-        self.connection.execute(query, (error_message, track_id))
+        query = "UPDATE downloaded_tracks SET status = 'error', error_message = error_message WHERE id = track_id"
+        self.connection.execute(query)  # Порядок соответствует SQL-запросу
         self.connection.commit()
         print(f"Ошибка для трека ID {track_id}: {error_message}")
 
@@ -143,7 +143,10 @@ class DatabaseManager:
         """
         Создаёт новое подключение для использования в другом потоке.
         """
-        return sqlite3.connect("database/music_library.db")
+        conn = sqlite3.connect("database/music_library.db")
+        conn.row_factory = sqlite3.Row  # Позволяет обращаться к полям по имени
+
+        return conn
 
     def get_download_queue(self):
         """
@@ -160,7 +163,7 @@ class DatabaseManager:
                     WHEN status = 'error' THEN 4
                     ELSE 5
                     END,
-                download_date DESC \
+                download_date DESC
             """
         try:
             cursor = self.connection.cursor()
