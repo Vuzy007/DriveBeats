@@ -426,6 +426,8 @@ class MusicLoaderApp:
             self.status_label.configure(text="Очередь загрузки очищена")
             self.refresh_queue()
 
+# Заменяем один из существующих классов QueueItem на более полную реализацию с прогресс-баром
+
 class QueueItem(ctk.CTkFrame):
     def __init__(self, master, db_id, title, artist, status, file_path, stream_url=None, download_date=None):
         super().__init__(master)
@@ -438,91 +440,74 @@ class QueueItem(ctk.CTkFrame):
         self.download_date = download_date
         self.configure(height=40)
 
-        # Создаем цветовую схему для различных статусов
-        status_colors = {
-            "pending": ("#FFD700", "#333333"),  # Золотой фон, темный текст
-            "downloading": ("#4CAF50", "#FFFFFF"),  # Зеленый фон, белый текст
-            "complete": ("#333333", "#FFFFFF"),  # Темный фон, белый текст
-            "error": ("#F44336", "#FFFFFF")  # Красный фон, белый текст
-        }
-
-        # Применяем цвет в зависимости от статуса
-        bg_color, text_color = status_colors.get(status, ("#333333", "#FFFFFF"))
-
-        # Рамка для названия трека
+        # Левая часть: название трека
         self.info_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.info_frame.pack(fill="both", expand=True, side="left")
 
-        # Название трека
-        self.label = ctk.CTkLabel(
-            self.info_frame,
-            text=title,
-            anchor="w",
-            text_color=text_color
-        )
+        self.label = ctk.CTkLabel(self.info_frame, text=title, anchor="w")
         self.label.pack(fill="x", expand=True, padx=5)
 
-        # Статус
-        status_display = {
-            "pending": "⌛ Ожидание",
-            "downloading": "⬇️ Загрузка...",
-            "complete": "✅ Завершено",
-            "error": "❌ Ошибка"
+        # Правая часть: прогресс-бар и статус
+        self.progress_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.progress_frame.pack(side="right", padx=5, pady=10)
+
+        # Цвета и прогресс по статусу
+        progress = 0.0
+        status_text = ""
+        color_map = {
+            "pending": ("#FFA500", "Ожидание", 0.0),
+            "downloading": ("#4CAF50", "Загрузка - 51%", 0.51),
+            "paused": ("#FF8C00", "Пауза - 25%", 0.25),
+            "complete": ("#4CAF50", "Завершено", 1.0),
+            "error": ("#F44336", "Ошибка", 0.0)
         }
+        bar_color, status_text, progress = color_map.get(self.status, ("#777777", self.status, 0.0))
 
-        self.status_label = ctk.CTkLabel(
-            self,
-            text=status_display.get(status, status),
-            width=100,
-            anchor="e",
-            text_color=text_color
-        )
-        self.status_label.pack(side="right", padx=5)
+        self.progress_bar = ctk.CTkProgressBar(self.progress_frame, height=14, width=180)
+        self.progress_bar.set(progress)
+        self.progress_bar.configure(progress_color=bar_color)
+        self.progress_bar.pack()
 
-        # Кнопки действий
+        self.status_label = ctk.CTkLabel(self.progress_frame, text=status_text, text_color="#CCCCCC")
+        self.status_label.pack()
+
+        # Кнопки справа
         self.button_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.button_frame.pack(side="right", padx=5)
 
-        # Значки для кнопок
         self.img_play = ctk.CTkImage(light_image=Image.open("pic/play-48.png"), size=(20, 20))
         self.img_retry = ctk.CTkImage(light_image=Image.open("pic/retry-48.png"), size=(20, 20))
         self.img_delete = ctk.CTkImage(light_image=Image.open("pic/delete-48.png"), size=(20, 20))
 
-        # При ошибке показываем кнопку повтора
         if status == "error":
             self.retry_button = ctk.CTkButton(
                 self.button_frame,
                 image=self.img_retry,
                 text="",
-                width=20,
-                height=20,
+                width=20, height=20,
                 fg_color="transparent",
                 hover_color="#365D1D",
                 command=self.retry_download
             )
             self.retry_button.pack(side="left", padx=2)
 
-        # Если файл уже скачан, показываем кнопку воспроизведения
         if status == "complete" and file_path and os.path.exists(file_path):
             self.play_button = ctk.CTkButton(
                 self.button_frame,
                 image=self.img_play,
                 text="",
-                width=20,
-                height=20,
+                width=20, height=20,
                 fg_color="transparent",
                 hover_color="#365D1D",
                 command=self.play_local_file
             )
             self.play_button.pack(side="left", padx=2)
 
-        # Кнопка удаления для всех статусов
         self.delete_button = ctk.CTkButton(
             self.button_frame,
             image=self.img_delete,
             text="",
-            width=20,
-            height=20,
+            width=20, height=20,
             fg_color="transparent",
             hover_color="#E38445",
             command=self.delete_from_queue
@@ -530,7 +515,6 @@ class QueueItem(ctk.CTkFrame):
         self.delete_button.pack(side="left", padx=2)
 
     def retry_download(self):
-        """Повторная попытка загрузки трека с ошибкой"""
         db = DatabaseManager()
         db.connection.execute(
             "UPDATE downloaded_tracks SET status = 'pending' WHERE id = ?",
@@ -538,17 +522,14 @@ class QueueItem(ctk.CTkFrame):
         )
         db.connection.commit()
         print(f"Трек '{self.title}' возвращен в очередь загрузки")
-        # Уведомляем родительское окно о необходимости обновить список
-        self.master.master.master.master.refresh_queue()  # Обращение к главному окну через предков
+        self.master.master.master.master.refresh_queue()
 
     def play_local_file(self):
-        """Воспроизведение локального файла"""
         if os.path.exists(self.file_path):
             try:
                 ffplay_path = os.path.abspath("ffmpeg/bin/ffplay.exe")
-                subprocess.Popen([
-                    ffplay_path, "-nodisp", "-autoexit", self.file_path
-                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen([ffplay_path, "-nodisp", "-autoexit", self.file_path],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 print(f"▶ Воспроизведение локального файла: {self.title}")
             except Exception as e:
                 print(f"Ошибка воспроизведения: {e}")
@@ -556,14 +537,12 @@ class QueueItem(ctk.CTkFrame):
             print(f"❌ Файл не найден: {self.file_path}")
 
     def delete_from_queue(self):
-        """Удаление трека из очереди загрузки"""
         if messagebox.askyesno("Удаление трека", f"Удалить трек '{self.title}' из очереди загрузки?"):
             db = DatabaseManager()
             db.connection.execute("DELETE FROM downloaded_tracks WHERE id = ?", (self.db_id,))
             db.connection.commit()
             print(f"✖ Удалено из очереди: {self.title}")
             self.destroy()
-            # Если файл существует и был скачан, спрашиваем о его удалении
             if self.status == "complete" and self.file_path and os.path.exists(self.file_path):
                 if messagebox.askyesno("Удаление файла", "Также удалить файл с диска?"):
                     try:
@@ -571,6 +550,8 @@ class QueueItem(ctk.CTkFrame):
                         print(f"Файл удален: {self.file_path}")
                     except Exception as e:
                         print(f"Ошибка удаления файла: {e}")
+
+
 
 if __name__ == "__main__":
     root = ctk.CTk()
