@@ -143,7 +143,7 @@ class DatabaseManager:
         """
         Создаёт новое подключение для использования в другом потоке.
         """
-        conn = sqlite3.connect("database/music_library.db")
+        conn = sqlite3.connect("database/music_library.db", check_same_thread=False)
         conn.row_factory = sqlite3.Row  # Позволяет обращаться к полям по имени
 
         return conn
@@ -172,3 +172,14 @@ class DatabaseManager:
         except Exception as e:
             print(f"Ошибка при получении очереди загрузки: {e}")
             return []
+
+    def update_download_url(self, track_id, url):
+        with self.lock:
+            conn = self.get_new_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE downloaded_tracks SET download_url = ? WHERE id = ?",
+                (url, track_id)
+            )
+            conn.commit()
+            conn.close()

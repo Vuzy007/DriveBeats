@@ -4,6 +4,7 @@ from tkinter import Menu, filedialog, messagebox
 import subprocess
 import os
 from database.db_manager import DatabaseManager
+from PIL import Image, ImageTk
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -12,7 +13,7 @@ ctk.set_default_color_theme("blue")
 class TrackItem(ctk.CTkFrame):
     currently_playing = None
     def __init__(self, master, title, stream_url=None, track_id=None):
-        super().__init__(master)
+        super().__init__(master, fg_color="transparent")
         self.title = title
         self.stream_url = stream_url
         self.track_id = track_id
@@ -140,6 +141,20 @@ class MusicLoaderApp:
         self.root.title("DriveBeats: mp3 (pankov.it)")
         self.root.geometry("1100x700")
 
+        def set_scrollable_frame_background(scrollable_frame, img_path):
+            bg_image = Image.open(img_path)
+            bg_photo = ImageTk.PhotoImage(bg_image)
+            background_label = ctk.CTkLabel(scrollable_frame._parent_canvas, image=bg_photo, text="")
+            background_label.image = bg_photo
+            background_label.place(relx=0, rely=0, relwidth=1, relheight=1)
+            background_label.lower()  # важно, чтобы фон не перекрывал элементы
+
+        bg_image = Image.open("pic/background.png")
+        self.bg_photo = ImageTk.PhotoImage(bg_image)
+
+        self.background_label = ctk.CTkLabel(self.root, image=self.bg_photo, text="")
+        self.background_label.place(relx=0, rely=0, relwidth=1, relheight=1)
+
         self.save_path = ctk.StringVar(value="D:/Music")
 
         self.create_menu()
@@ -164,10 +179,18 @@ class MusicLoaderApp:
         self.root.config(menu=menubar)
 
     def build_layout(self):
-        main_frame = ctk.CTkFrame(self.root)
+        main_frame = ctk.CTkFrame(self.root, fg_color="transparent")
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        top_panel = ctk.CTkFrame(main_frame)
+        # Фоновая картинка именно на main_frame
+        bg_image = Image.open("pic/background.png")
+        bg_photo = ImageTk.PhotoImage(bg_image)
+        background_label = ctk.CTkLabel(main_frame, image=bg_photo, text="")
+        background_label.image = bg_photo  # не даем Python удалить ссылку
+        background_label.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+        # Остальной интерфейс над этой картинкой
+        top_panel = ctk.CTkFrame(main_frame, fg_color="transparent")
         top_panel.pack(fill="x")
 
         self.query_entry = ctk.CTkEntry(top_panel, placeholder_text="Введите запрос", width=300)
@@ -176,53 +199,32 @@ class MusicLoaderApp:
 
         ctk.CTkButton(top_panel, text="Найти", command=self.perform_search).pack(side="left", padx=5)
 
-        path_panel = ctk.CTkFrame(main_frame)
+        path_panel = ctk.CTkFrame(main_frame, fg_color="transparent")
         path_panel.pack(fill="x", pady=5)
 
         self.path_entry = ctk.CTkEntry(path_panel, textvariable=self.save_path, width=600)
         self.path_entry.pack(side="left", padx=(0, 5))
         ctk.CTkButton(path_panel, text="Обзор", command=self.browse_directory).pack(side="left")
 
-        middle_frame = ctk.CTkFrame(main_frame)
+        middle_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         middle_frame.pack(fill="both", expand=True, pady=10)
 
-        left_frame = ctk.CTkFrame(middle_frame)
+        left_frame = ctk.CTkFrame(middle_frame, fg_color="transparent")
         left_frame.pack(side="left", fill="both", expand=True)
-        ctk.CTkLabel(left_frame, text="Результаты поиска:").pack(anchor="w")
 
-        self.search_container = ctk.CTkScrollableFrame(left_frame)
+        ctk.CTkLabel(left_frame, text="Результаты поиска:", fg_color="transparent").pack(anchor="w")
+
+        self.search_container = ctk.CTkScrollableFrame(left_frame, fg_color="transparent", corner_radius=10, border_width=1, border_color="#555555")
         self.search_container.pack(fill="both", expand=True, padx=5)
 
-        center_controls = ctk.CTkFrame(middle_frame, width=80)
+        center_controls = ctk.CTkFrame(middle_frame, width=80, fg_color="transparent")
         center_controls.pack(side="left", fill="y")
         center_controls.pack_propagate(False)
 
-        self.img_right = ctk.CTkImage(light_image=Image.open("pic/right-48.png"), size=(24, 24))
-        self.img_d_right = ctk.CTkImage(light_image=Image.open("pic/double_right-48.png"), size=(24, 24))
-
-        ctk.CTkLabel(center_controls, text="").pack(expand=True)
-        ctk.CTkButton(
-            center_controls,
-            image=self.img_right,
-            text="",
-            command=self.add_selected,
-            fg_color="transparent",
-            hover_color="#333333",
-        ).pack(pady=5)
-        ctk.CTkButton(
-            center_controls,
-            image=self.img_d_right,
-            text="",
-            command=self.add_all,
-            fg_color="transparent",
-            hover_color="#333333",
-        ).pack(pady=5)
-        ctk.CTkLabel(center_controls, text="").pack(expand=True)
-
-        right_frame = ctk.CTkFrame(middle_frame)
+        right_frame = ctk.CTkFrame(middle_frame, fg_color="transparent")
         right_frame.pack(side="left", fill="both", expand=True)
 
-        queue_control = ctk.CTkFrame(right_frame)
+        queue_control = ctk.CTkFrame(right_frame, fg_color="transparent")
         queue_control.pack(fill="x", padx=5, pady=15)
         self.start_queue_btn = ctk.CTkButton(
             queue_control,
@@ -245,8 +247,9 @@ class MusicLoaderApp:
         ).pack(side="left", padx=2)
 
         ctk.CTkLabel(right_frame, text="Очередь загрузки:").pack(anchor="w")
-        self.queue_container = ctk.CTkScrollableFrame(right_frame)
+        self.queue_container = ctk.CTkScrollableFrame(right_frame, fg_color="transparent", corner_radius=10, border_width=1, border_color="#555555")
         self.queue_container.pack(fill="both", expand=True, padx=5)
+        (self.queue_container, "pic/background.png")
 
         self.status_label = ctk.CTkLabel(main_frame, text="")
         self.status_label.pack(pady=5)
@@ -430,7 +433,7 @@ class MusicLoaderApp:
 
 class QueueItem(ctk.CTkFrame):
     def __init__(self, master, db_id, title, artist, status, file_path, stream_url=None, download_date=None):
-        super().__init__(master)
+        super().__init__(master, fg_color="transparent")
         self.db_id = db_id
         self.title = title
         self.artist = artist
