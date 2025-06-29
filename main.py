@@ -1,5 +1,5 @@
 from database.base_init import initialize_database
-import customtkinter as ctk
+from PySide6 import QtWidgets
 from gui.gui import MusicLoaderApp
 from api_clients.soundcloud_client import search_tracks, get_stream_url
 from threading import Thread
@@ -23,10 +23,11 @@ def main(db_manager):
     print("Фоновый процесс скачивания треков запущен.")
 
     # Запуск GUI
-    root = ctk.CTk()
-    app = MusicLoaderApp(root, search_tracks, get_stream_url)
+    qt_app = QtWidgets.QApplication([])
+    window = MusicLoaderApp(search_tracks, get_stream_url)
     print("Приложение GUI запущено.")
-    root.mainloop()
+    window.show()
+    qt_app.exec()
 
 if __name__ == "__main__":
     try:
