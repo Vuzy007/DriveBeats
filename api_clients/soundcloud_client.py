@@ -1,6 +1,6 @@
 import requests
 
-SOUNDCLOUD_CLIENT_ID = "JtwkMxXKQNqDFvsQ3pUayFVgt4j9dS87"
+SOUNDCLOUD_CLIENT_ID = "q3Zg5P0LrB9M6e0eA45vMLNLvT5vJDCZ"
 BASE_URL = "https://api-v2.soundcloud.com"
 
 
