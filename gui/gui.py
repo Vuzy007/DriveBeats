@@ -3,6 +3,27 @@ import subprocess
 import os
 from database.db_manager import DatabaseManager
 
+
+# --- Playback management ----------------------------------------------------
+# These globals store the currently playing ffplay process and the widget that
+# started it. They allow us to stop any playback when another play button is
+# pressed or when a stop button is triggered.
+current_process = None
+current_widget = None
+
+
+def stop_current_playback():
+    """Terminate any running ffplay process."""
+    global current_process, current_widget
+    if current_process and current_process.poll() is None:
+        current_process.terminate()
+    if current_widget:
+        # ensure widget does not keep stale reference
+        if hasattr(current_widget, "ffplay_process"):
+            current_widget.ffplay_process = None
+    current_process = None
+    current_widget = None
+
 class TrackItemWidget(QtWidgets.QWidget):
     def __init__(self, title, artist="Unknown Artist", stream_url=None, track_id=None):
         super().__init__()
@@ -37,19 +58,21 @@ class TrackItemWidget(QtWidgets.QWidget):
     def listen_track(self):
         if not self.stream_url:
             return
-        self.stop_track()
+        # Stop any other track that might be playing
+        stop_current_playback()
         try:
             ffplay_path = os.path.abspath('ffmpeg/bin/ffplay.exe')
             self.ffplay_process = subprocess.Popen([
                 ffplay_path, '-nodisp', '-autoexit', self.stream_url
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            global current_process, current_widget
+            current_process = self.ffplay_process
+            current_widget = self
         except FileNotFoundError:
             print('ffplay not found')
 
     def stop_track(self):
-        if self.ffplay_process and self.ffplay_process.poll() is None:
-            self.ffplay_process.terminate()
-            self.ffplay_process = None
+        stop_current_playback()
 
     def delete_self(self):
         self.stop_track()
@@ -118,9 +141,14 @@ class QueueItemWidget(QtWidgets.QWidget):
         if os.path.exists(self.file_path):
             try:
                 ffplay_path = os.path.abspath('ffmpeg/bin/ffplay.exe')
-                subprocess.Popen([
+                # Stop any other playback before starting a new one
+                stop_current_playback()
+                proc = subprocess.Popen([
                     ffplay_path, '-nodisp', '-autoexit', self.file_path
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                global current_process, current_widget
+                current_process = proc
+                current_widget = None
             except Exception as e:
                 print(f'Ошибка воспроизведения: {e}')
         else:
