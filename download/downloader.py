@@ -4,6 +4,9 @@ import sqlite3
 import time
 import logging
 import threading
+from typing import Dict
+
+from tagging import id3_editor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -21,7 +24,13 @@ class TrackDownloader:
         """Signal the downloader loop to stop."""
         self.stop_event.set()
 
-    def download_track(self, track_id, title, artist, download_url):
+    def download_track(self, track_dict: Dict, url_column: str) -> None:
+        """Download a single track and write ID3 tags."""
+        track_id = track_dict["id"]
+        title = track_dict["track_title"]
+        artist = track_dict.get("artist") or "Unknown Artist"
+        download_url = track_dict[url_column]
+
         try:
             response = requests.get(download_url, stream=True)
             response.raise_for_status()
@@ -34,11 +43,25 @@ class TrackDownloader:
                     file.write(chunk)
 
             self.db_manager.update_track_status(track_id, "complete", filepath)
-            logging.info(f"Трек '{title}' успешно скачан в {filepath}")
+            logging.info("Трек '%s' успешно скачан в %s", title, filepath)
+
+            tags = {
+                "title": title,
+                "artist": artist,
+                "album": track_dict.get("album"),
+                "year": track_dict.get("release_year"),
+                "genre": track_dict.get("genre"),
+            }
+
+            mb_meta = id3_editor.fetch_metadata(title, artist)
+            for key, value in mb_meta.items():
+                tags.setdefault(key, value)
+
+            id3_editor.apply_tags(filepath, tags)
         except Exception as e:
             error_message = str(e)
             self.db_manager.mark_error(track_id, error_message)
-            logging.error(f"Ошибка при скачивании трека {title}: {error_message}")
+            logging.error("Ошибка при скачивании трека %s: %s", title, error_message)
 
     def _process_single_track(self, track_dict, url_column):
         """Download a single track in a separate thread."""
@@ -46,17 +69,15 @@ class TrackDownloader:
         cursor = conn.cursor()
         track_id = track_dict["id"]
         title = track_dict["track_title"]
-        artist = track_dict["artist"] or "Unknown Artist"
-        url = track_dict[url_column]
 
-        logging.info(f"Начинаем скачивание: {title}")
+        logging.info("Начинаем скачивание: %s", title)
         try:
             cursor.execute(
                 "UPDATE downloaded_tracks SET status = 'downloading' WHERE id = ?",
                 (track_id,),
             )
             conn.commit()
-            self.download_track(track_id, title, artist, url)
+            self.download_track(track_dict, url_column)
         except Exception as e:
             logging.error(
                 f"Ошибка при обновлении или загрузке трека {title}: {e}"
