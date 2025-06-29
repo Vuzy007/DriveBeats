@@ -1,7 +1,7 @@
 from database.base_init import initialize_database
 from PySide6 import QtWidgets
 from gui.gui import MusicLoaderApp
-from api_clients.soundcloud_client import search_tracks, get_stream_url
+from api_clients.musicbrainz_client import search_recordings
 from threading import Thread
 from database.db_manager import DatabaseManager
 from download.downloader import TrackDownloader
@@ -24,7 +24,7 @@ def main(db_manager):
 
     # Запуск GUI
     qt_app = QtWidgets.QApplication([])
-    window = MusicLoaderApp(search_tracks, get_stream_url)
+    window = MusicLoaderApp(search_recordings)
     print("Приложение GUI запущено.")
     window.show()
     qt_app.exec()

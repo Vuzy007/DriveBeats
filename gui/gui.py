@@ -137,7 +137,7 @@ class QueueItemWidget(QtWidgets.QWidget):
         self.setParent(None)
 
 class MusicLoaderApp(QtWidgets.QMainWindow):
-    def __init__(self, search_tracks, get_stream_url):
+    def __init__(self, search_tracks, get_stream_url=None):
         super().__init__()
         self.search_tracks = search_tracks
         self.get_stream_url = get_stream_url
@@ -231,20 +231,19 @@ class MusicLoaderApp(QtWidgets.QMainWindow):
             self.search_list.setItemWidget(item, widget)
             return
         for track in results:
-            user = track.get('user', {}).get('username', '?')
             title = track.get('title', 'Без названия')
-            full_title = f'{user} — {title}'
-            track_id = str(track.get('id', ''))
+            artists = ', '.join(ac.get('name', '') for ac in track.get('artist-credit', []))
+            full_title = f'{artists} — {title}' if artists else title
+            track_id = track.get('id', '')
             stream_url = None
-            for transcoding in track.get('media', {}).get('transcodings', []):
-                if 'progressive' in transcoding.get('format', {}).get('protocol', ''):
-                    try:
-                        stream_url = self.get_stream_url(transcoding.get('url'))
-                        break
-                    except Exception as e:
-                        print(f'Ошибка получения ссылки: {e}')
-            if stream_url is None:
-                continue
+            if self.get_stream_url:
+                for transcoding in track.get('media', {}).get('transcodings', []):
+                    if 'progressive' in transcoding.get('format', {}).get('protocol', ''):
+                        try:
+                            stream_url = self.get_stream_url(transcoding.get('url'))
+                            break
+                        except Exception as e:
+                            print(f'Ошибка получения ссылки: {e}')
             item = QtWidgets.QListWidgetItem()
             widget = TrackItemWidget(full_title, stream_url=stream_url, track_id=track_id)
             item.setSizeHint(widget.sizeHint())
@@ -257,8 +256,8 @@ class MusicLoaderApp(QtWidgets.QMainWindow):
         for i in range(self.search_list.count()):
             item = self.search_list.item(i)
             widget = self.search_list.itemWidget(item)
-            if isinstance(widget, TrackItemWidget) and widget.checkbox.isChecked() and widget.stream_url:
-                success, status = db.add_track(widget.title, 'Unknown Artist', widget.stream_url, widget.track_id)
+            if isinstance(widget, TrackItemWidget) and widget.checkbox.isChecked():
+                success, status = db.add_track(widget.title, 'Unknown Artist', widget.stream_url or '', widget.track_id)
                 if success and status == 'added':
                     added += 1
                 elif success and status == 'requeued':
@@ -283,8 +282,8 @@ class MusicLoaderApp(QtWidgets.QMainWindow):
         for i in range(self.search_list.count()):
             item = self.search_list.item(i)
             widget = self.search_list.itemWidget(item)
-            if isinstance(widget, TrackItemWidget) and widget.stream_url:
-                success, status = db.add_track(widget.title, 'Unknown Artist', widget.stream_url, widget.track_id)
+            if isinstance(widget, TrackItemWidget):
+                success, status = db.add_track(widget.title, 'Unknown Artist', widget.stream_url or '', widget.track_id)
                 if success and status == 'added':
                     added += 1
                 elif success and status == 'requeued':
@@ -349,7 +348,7 @@ class MusicLoaderApp(QtWidgets.QMainWindow):
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication([])
-    from api_clients.soundcloud_client import search_tracks, get_stream_url
-    window = MusicLoaderApp(search_tracks, get_stream_url)
+    from api_clients.musicbrainz_client import search_recordings
+    window = MusicLoaderApp(search_recordings)
     window.show()
     app.exec()
