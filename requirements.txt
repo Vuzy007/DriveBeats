@@ -1,4 +1,4 @@
-customtkinter
+PySide6
 requests
 mutagen
 python-vlc
