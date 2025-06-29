@@ -5,3 +5,4 @@ dist/
 ffmpeg/
 .venv/
 __pycache__/
+/downloads/
