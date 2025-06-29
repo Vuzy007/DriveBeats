@@ -5,7 +5,7 @@ import subprocess
 import os
 from database.db_manager import DatabaseManager
 from PIL import Image, ImageTk
-
+#Нужно будет переписать под библиотеку PyQt
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
