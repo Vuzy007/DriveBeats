@@ -4,9 +4,10 @@ import os
 from database.db_manager import DatabaseManager
 
 class TrackItemWidget(QtWidgets.QWidget):
-    def __init__(self, title, stream_url=None, track_id=None):
+    def __init__(self, title, artist="Unknown Artist", stream_url=None, track_id=None):
         super().__init__()
         self.title = title
+        self.artist = artist
         self.stream_url = stream_url
         self.track_id = track_id
         self.ffplay_process = None
@@ -15,7 +16,7 @@ class TrackItemWidget(QtWidgets.QWidget):
         self.checkbox = QtWidgets.QCheckBox()
         layout.addWidget(self.checkbox)
 
-        self.label = QtWidgets.QLabel(title)
+        self.label = QtWidgets.QLabel(f"{artist} — {title}")
         layout.addWidget(self.label, 1)
 
         self.play_btn = QtWidgets.QToolButton()
@@ -232,20 +233,16 @@ class MusicLoaderApp(QtWidgets.QMainWindow):
             return
         for track in results:
             title = track.get('title', 'Без названия')
-            artists = ', '.join(ac.get('name', '') for ac in track.get('artist-credit', []))
-            full_title = f'{artists} — {title}' if artists else title
+            artist = track.get('user', {}).get('name', 'Unknown Artist')
             track_id = track.get('id', '')
             stream_url = None
-            if self.get_stream_url:
-                for transcoding in track.get('media', {}).get('transcodings', []):
-                    if 'progressive' in transcoding.get('format', {}).get('protocol', ''):
-                        try:
-                            stream_url = self.get_stream_url(transcoding.get('url'))
-                            break
-                        except Exception as e:
-                            print(f'Ошибка получения ссылки: {e}')
+            if self.get_stream_url and track_id:
+                try:
+                    stream_url = self.get_stream_url(track_id)
+                except Exception as e:
+                    print(f'Ошибка получения ссылки: {e}')
             item = QtWidgets.QListWidgetItem()
-            widget = TrackItemWidget(full_title, stream_url=stream_url, track_id=track_id)
+            widget = TrackItemWidget(title, artist=artist, stream_url=stream_url, track_id=track_id)
             item.setSizeHint(widget.sizeHint())
             self.search_list.addItem(item)
             self.search_list.setItemWidget(item, widget)
@@ -257,7 +254,12 @@ class MusicLoaderApp(QtWidgets.QMainWindow):
             item = self.search_list.item(i)
             widget = self.search_list.itemWidget(item)
             if isinstance(widget, TrackItemWidget) and widget.checkbox.isChecked():
-                success, status = db.add_track(widget.title, 'Unknown Artist', widget.stream_url or '', widget.track_id)
+                success, status = db.add_track(
+                    widget.title,
+                    widget.artist,
+                    widget.stream_url or '',
+                    widget.track_id
+                )
                 if success and status == 'added':
                     added += 1
                 elif success and status == 'requeued':
@@ -283,7 +285,12 @@ class MusicLoaderApp(QtWidgets.QMainWindow):
             item = self.search_list.item(i)
             widget = self.search_list.itemWidget(item)
             if isinstance(widget, TrackItemWidget):
-                success, status = db.add_track(widget.title, 'Unknown Artist', widget.stream_url or '', widget.track_id)
+                success, status = db.add_track(
+                    widget.title,
+                    widget.artist,
+                    widget.stream_url or '',
+                    widget.track_id
+                )
                 if success and status == 'added':
                     added += 1
                 elif success and status == 'requeued':
@@ -348,7 +355,7 @@ class MusicLoaderApp(QtWidgets.QMainWindow):
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication([])
-    from api_clients.musicbrainz_client import search_recordings
-    window = MusicLoaderApp(search_recordings)
+    from api_clients.audius_client import search_tracks, get_stream_url
+    window = MusicLoaderApp(search_tracks, get_stream_url)
     window.show()
     app.exec()
