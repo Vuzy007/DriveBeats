@@ -34,7 +34,7 @@ def _request(endpoint: str, params: Optional[dict] = None) -> dict:
 
 def search_tracks(query: str, limit: int = 20) -> List[Dict]:
     """Search for tracks on Audius by query string."""
-    data = _request("/tracks/search", {"q": query, "limit": limit})
+    data = _request("/search/tracks", {"query": query, "limit": limit})
     return data.get("data", [])
 
 
