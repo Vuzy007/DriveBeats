@@ -174,14 +174,23 @@ class MusicLoaderApp(QtWidgets.QMainWindow):
         self.resize(1100, 700)
 
         central = QtWidgets.QWidget()
+        central.setStyleSheet("background: transparent;")
         self.setCentralWidget(central)
         main_layout = QtWidgets.QVBoxLayout(central)
+
+        self.dark_mode = False
+        self.downloader = None
+        self.downloader_thread = None
 
         menubar = self.menuBar()
         file_menu = menubar.addMenu('Файл')
         file_menu.addAction('Выход', self.close)
         menubar.addMenu('Настройки')
         menubar.addMenu('О программе')
+
+        self.theme_btn = QtWidgets.QPushButton('Тёмная тема')
+        self.theme_btn.clicked.connect(self.toggle_theme)
+        menubar.setCornerWidget(self.theme_btn, QtCore.Qt.TopRightCorner)
 
         top_layout = QtWidgets.QHBoxLayout()
         self.query_entry = QtWidgets.QLineEdit()
@@ -224,11 +233,23 @@ class MusicLoaderApp(QtWidgets.QMainWindow):
         queue_controls = QtWidgets.QHBoxLayout()
         self.start_queue_btn = QtWidgets.QPushButton('Начать загрузку')
         self.start_queue_btn.clicked.connect(self.start_download_queue)
+
+        self.stop_queue_btn = QtWidgets.QPushButton('Стоп загрузки')
+        self.stop_queue_btn.clicked.connect(self.stop_download_queue)
+
         refresh_btn = QtWidgets.QPushButton('Обновить')
         refresh_btn.clicked.connect(self.refresh_queue)
+
         clear_btn = QtWidgets.QPushButton('Очистить очередь')
         clear_btn.clicked.connect(self.clear_queue)
+
+        self.concurrent_combo = QtWidgets.QComboBox()
+        self.concurrent_combo.addItems([str(i) for i in range(1, 6)])
+
         queue_controls.addWidget(self.start_queue_btn)
+        queue_controls.addWidget(self.stop_queue_btn)
+        queue_controls.addWidget(QtWidgets.QLabel('Потоков:'))
+        queue_controls.addWidget(self.concurrent_combo)
         queue_controls.addWidget(refresh_btn)
         queue_controls.addWidget(clear_btn)
         right_layout.addLayout(queue_controls)
@@ -242,6 +263,7 @@ class MusicLoaderApp(QtWidgets.QMainWindow):
         main_layout.addWidget(self.status_label)
 
         self.refresh_queue()
+        self.apply_light_theme()
 
     def browse_directory(self):
         directory = QtWidgets.QFileDialog.getExistingDirectory(self, 'Выбор папки', self.path_edit.text())
@@ -362,17 +384,30 @@ class MusicLoaderApp(QtWidgets.QMainWindow):
     def start_download_queue(self):
         from download.downloader import TrackDownloader
         import threading
+
+        if self.downloader_thread and self.downloader_thread.is_alive():
+            self.status_label.setText('Загрузка уже запущена')
+            return
+
         download_dir = self.path_edit.text()
         if not download_dir:
             self.status_label.setText('Ошибка: укажите папку для сохранения')
             return
+
         db = DatabaseManager()
-        downloader = TrackDownloader(db, download_dir=download_dir)
-        t = threading.Thread(target=downloader.process_downloads)
-        t.daemon = True
-        t.start()
+        max_workers = int(self.concurrent_combo.currentText())
+        self.downloader = TrackDownloader(db, download_dir=download_dir, max_workers=max_workers)
+        self.downloader_thread = threading.Thread(target=self.downloader.process_downloads, daemon=True)
+        self.downloader_thread.start()
         self.status_label.setText('Загрузка треков запущена')
         QtCore.QTimer.singleShot(2000, self.refresh_queue)
+
+    def stop_download_queue(self):
+        if self.downloader:
+            self.downloader.stop()
+        if self.downloader_thread:
+            self.downloader_thread.join(timeout=0)
+        self.status_label.setText('Загрузка остановлена')
 
     def clear_queue(self):
         db = DatabaseManager()
@@ -380,6 +415,41 @@ class MusicLoaderApp(QtWidgets.QMainWindow):
         db.connection.commit()
         self.status_label.setText('Очередь загрузки очищена')
         self.refresh_queue()
+
+    def toggle_theme(self):
+        if self.dark_mode:
+            self.apply_light_theme()
+            self.theme_btn.setText('Тёмная тема')
+            self.dark_mode = False
+        else:
+            self.apply_dark_theme()
+            self.theme_btn.setText('Светлая тема')
+            self.dark_mode = True
+
+    def apply_light_theme(self):
+        style = """
+        QMainWindow {
+            background-image: url(pic/logo.png);
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+        """
+        self.setStyleSheet(style)
+
+    def apply_dark_theme(self):
+        style = """
+        QMainWindow {
+            background-color: #2b2b2b;
+            background-image: url(pic/logo.png);
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+        * {color: #dddddd;}
+        QLineEdit, QListWidget, QProgressBar, QLabel, QPushButton, QComboBox {
+            background-color: #3c3c3c;
+        }
+        """
+        self.setStyleSheet(style)
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication([])
