@@ -3,15 +3,23 @@ import requests
 import sqlite3
 import time
 import logging
+import threading
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
 class TrackDownloader:
-    def __init__(self, db_manager, download_dir="downloads"):
+    def __init__(self, db_manager, download_dir="downloads", max_workers=1):
         self.db_manager = db_manager
         self.download_dir = download_dir
+        self.max_workers = max_workers
+        self.stop_event = threading.Event()
         os.makedirs(self.download_dir, exist_ok=True)
+        self.is_running = False
+
+    def stop(self):
+        """Signal the downloader loop to stop."""
+        self.stop_event.set()
 
     def download_track(self, track_id, title, artist, download_url):
         try:
@@ -32,7 +40,10 @@ class TrackDownloader:
             self.db_manager.mark_error(track_id, error_message)
             logging.error(f"Ошибка при скачивании трека {title}: {error_message}")
 
-    def _process_single_track(self, conn, cursor, track_dict, url_column):
+    def _process_single_track(self, track_dict, url_column):
+        """Download a single track in a separate thread."""
+        conn = self.db_manager.get_new_connection()
+        cursor = conn.cursor()
         track_id = track_dict["id"]
         title = track_dict["track_title"]
         artist = track_dict["artist"] or "Unknown Artist"
@@ -40,14 +51,23 @@ class TrackDownloader:
 
         logging.info(f"Начинаем скачивание: {title}")
         try:
-            cursor.execute("UPDATE downloaded_tracks SET status = 'downloading' WHERE id = ?", (track_id,))
+            cursor.execute(
+                "UPDATE downloaded_tracks SET status = 'downloading' WHERE id = ?",
+                (track_id,),
+            )
             conn.commit()
             self.download_track(track_id, title, artist, url)
         except Exception as e:
-            logging.error(f"Ошибка при обновлении или загрузке трека {title}: {e}")
+            logging.error(
+                f"Ошибка при обновлении или загрузке трека {title}: {e}"
+            )
+        finally:
+            conn.close()
 
     def process_downloads(self):
-        while True:
+        """Continuously process the download queue respecting concurrency."""
+        self.is_running = True
+        while not self.stop_event.is_set():
             conn = self.db_manager.get_new_connection()
             cursor = conn.cursor()
 
@@ -57,21 +77,34 @@ class TrackDownloader:
             url_column = "url" if "url" in column_names else "download_url"
 
             has_row_factory = hasattr(conn, 'row_factory') and conn.row_factory == sqlite3.Row
-            cursor.execute("SELECT * FROM downloaded_tracks WHERE status = 'pending' LIMIT 5")
+            cursor.execute(
+                "SELECT * FROM downloaded_tracks WHERE status = 'pending' LIMIT ?",
+                (self.max_workers,),
+            )
             pending_tracks = cursor.fetchall()
+            conn.close()
 
             if not pending_tracks:
-                logging.info("Очередь пуста. Ждём новых треков...")
-                conn.close()
                 time.sleep(5)
                 continue
 
+            threads = []
             for track in pending_tracks:
+                if self.stop_event.is_set():
+                    break
                 if has_row_factory:
                     track_dict = track
                 else:
                     track_dict = dict(zip(column_names, track))
-                self._process_single_track(conn, cursor, track_dict, url_column)
+                t = threading.Thread(
+                    target=self._process_single_track, args=(track_dict, url_column)
+                )
+                t.start()
+                threads.append(t)
 
-            conn.close()
+            for t in threads:
+                t.join()
+
             time.sleep(2)
+
+        self.is_running = False
