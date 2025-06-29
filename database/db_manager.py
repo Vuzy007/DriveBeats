@@ -92,8 +92,16 @@ class DatabaseManager:
                     return False, "duplicate"
 
         # Проверка по URL и названию (если track_id не предоставлен или не найден)
-        cursor.execute(f"SELECT id, file_path, status FROM downloaded_tracks WHERE {url_column} = ? OR (track_title = ? AND artist = ?)",
-                   (download_url, title, artist))
+        if download_url:
+            cursor.execute(
+                f"SELECT id, file_path, status FROM downloaded_tracks WHERE {url_column} = ? OR (track_title = ? AND artist = ?)",
+                (download_url, title, artist),
+            )
+        else:
+            cursor.execute(
+                "SELECT id, file_path, status FROM downloaded_tracks WHERE track_title = ? AND artist = ?",
+                (title, artist),
+            )
         existing = cursor.fetchone()
 
         if existing:
